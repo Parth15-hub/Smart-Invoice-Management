@@ -1,44 +1,19 @@
 import { useEffect, useMemo, useState } from "react";
 
-const initialInvoices = [
-  {
-    id: "INV-001",
-    clientName: "Acme Corp",
-    clientEmail: "billing@acme.com",
-    invoiceDate: "2026-05-01",
-    dueDate: "2026-05-20",
-    amount: 45000,
-    status: "Paid",
-    description: "Website development service",
-  },
-  {
-    id: "INV-002",
-    clientName: "NovaTech Solutions",
-    clientEmail: "accounts@novatech.com",
-    invoiceDate: "2026-05-05",
-    dueDate: "2026-05-25",
-    amount: 32000,
-    status: "Pending",
-    description: "Backend API development",
-  },
-  {
-    id: "INV-003",
-    clientName: "BlueSky Ventures",
-    clientEmail: "finance@bluesky.com",
-    invoiceDate: "2026-04-10",
-    dueDate: "2026-04-30",
-    amount: 28000,
-    status: "Overdue",
-    description: "Invoice automation dashboard",
-  },
-];
+import {
+  getInvoices,
+  createInvoice,
+  deleteInvoice,
+  updateInvoiceStatus,
+} from "./services/invoiceService";
 
 function App() {
-  const [invoices, setInvoices] = useState(initialInvoices);
+  const [invoices, setInvoices] = useState([]);
   const [page, setPage] = useState("dashboard");
   const [selectedInvoice, setSelectedInvoice] = useState(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
+  const [loading, setLoading] = useState(false);
 
   const [form, setForm] = useState({
     clientName: "",
@@ -52,12 +27,28 @@ function App() {
 
   useEffect(() => {
     document.title = "Smart Invoice Management System";
+    loadInvoices();
   }, []);
 
+  const loadInvoices = async () => {
+    try {
+      setLoading(true);
+      const response = await getInvoices();
+      setInvoices(response.data);
+    } catch (error) {
+      console.error("Error fetching invoices:", error);
+      alert("Failed to load invoices. Please check backend server.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const filteredInvoices = invoices.filter((invoice) => {
+    const invoiceCode = `INV-${String(invoice.id).padStart(3, "0")}`;
+
     const matchesSearch =
-      invoice.clientName.toLowerCase().includes(search.toLowerCase()) ||
-      invoice.id.toLowerCase().includes(search.toLowerCase());
+      invoice.clientName?.toLowerCase().includes(search.toLowerCase()) ||
+      invoiceCode.toLowerCase().includes(search.toLowerCase());
 
     const matchesStatus =
       statusFilter === "All" || invoice.status === statusFilter;
@@ -70,9 +61,10 @@ function App() {
     const paidInvoices = invoices.filter((i) => i.status === "Paid").length;
     const pendingInvoices = invoices.filter((i) => i.status === "Pending").length;
     const overdueInvoices = invoices.filter((i) => i.status === "Overdue").length;
+
     const totalRevenue = invoices
       .filter((i) => i.status === "Paid")
-      .reduce((sum, i) => sum + Number(i.amount), 0);
+      .reduce((sum, i) => sum + Number(i.amount || 0), 0);
 
     return {
       totalInvoices,
@@ -95,7 +87,7 @@ function App() {
     });
   };
 
-  const handleCreateInvoice = (e) => {
+  const handleCreateInvoice = async (e) => {
     e.preventDefault();
 
     if (
@@ -109,8 +101,7 @@ function App() {
       return;
     }
 
-    const newInvoice = {
-      id: `INV-${String(invoices.length + 1).padStart(3, "0")}`,
+    const invoiceData = {
       clientName: form.clientName,
       clientEmail: form.clientEmail,
       invoiceDate: form.invoiceDate,
@@ -120,24 +111,49 @@ function App() {
       description: form.description,
     };
 
-    setInvoices([...invoices, newInvoice]);
-    resetForm();
-    setPage("invoices");
-  };
-
-  const handleDelete = (id) => {
-    const confirmDelete = window.confirm("Are you sure you want to delete this invoice?");
-    if (confirmDelete) {
-      setInvoices(invoices.filter((invoice) => invoice.id !== id));
+    try {
+      await createInvoice(invoiceData);
+      resetForm();
+      await loadInvoices();
+      setPage("invoices");
+      alert("Invoice created successfully!");
+    } catch (error) {
+      console.error("Error creating invoice:", error);
+      alert("Failed to create invoice.");
     }
   };
 
-  const markAsPaid = (id) => {
-    setInvoices(
-      invoices.map((invoice) =>
-        invoice.id === id ? { ...invoice, status: "Paid" } : invoice
-      )
+  const handleDelete = async (id) => {
+    const confirmDelete = window.confirm(
+      "Are you sure you want to delete this invoice?"
     );
+
+    if (!confirmDelete) return;
+
+    try {
+      await deleteInvoice(id);
+      await loadInvoices();
+      alert("Invoice deleted successfully!");
+    } catch (error) {
+      console.error("Error deleting invoice:", error);
+      alert("Failed to delete invoice.");
+    }
+  };
+
+  const markAsPaid = async (id) => {
+    try {
+      await updateInvoiceStatus(id, "Paid");
+      await loadInvoices();
+
+      if (selectedInvoice && selectedInvoice.id === id) {
+        setSelectedInvoice({ ...selectedInvoice, status: "Paid" });
+      }
+
+      alert("Invoice marked as paid!");
+    } catch (error) {
+      console.error("Error updating status:", error);
+      alert("Failed to update invoice status.");
+    }
   };
 
   const viewInvoice = (invoice) => {
@@ -183,7 +199,7 @@ function App() {
 
         <div className="apiBox">
           <span className="dot"></span>
-          Frontend Running
+          Backend Connected
         </div>
       </aside>
 
@@ -197,7 +213,13 @@ function App() {
           </h1>
         </header>
 
-        {page === "dashboard" && (
+        {loading && (
+          <div className="loadingBox">
+            <p>Loading invoices...</p>
+          </div>
+        )}
+
+        {!loading && page === "dashboard" && (
           <section className="content">
             <div className="statsGrid">
               <StatCard title="Total Invoices" value={stats.totalInvoices} />
@@ -228,7 +250,7 @@ function App() {
           </section>
         )}
 
-        {page === "invoices" && (
+        {!loading && page === "invoices" && (
           <section className="content">
             <div className="toolbar">
               <input
@@ -264,7 +286,7 @@ function App() {
           </section>
         )}
 
-        {page === "create" && (
+        {!loading && page === "create" && (
           <section className="content">
             <div className="card formCard">
               <h2>Create New Invoice</h2>
@@ -364,6 +386,7 @@ function App() {
                   >
                     Cancel
                   </button>
+
                   <button type="submit" className="primaryBtn">
                     Create Invoice
                   </button>
@@ -373,7 +396,7 @@ function App() {
           </section>
         )}
 
-        {page === "details" && selectedInvoice && (
+        {!loading && page === "details" && selectedInvoice && (
           <section className="content">
             <button className="backBtn" onClick={() => setPage("invoices")}>
               ← Back to Invoices
@@ -389,7 +412,7 @@ function App() {
 
                 <div className="invoiceTitle">
                   <h1>INVOICE</h1>
-                  <p>{selectedInvoice.id}</p>
+                  <p>INV-{String(selectedInvoice.id).padStart(3, "0")}</p>
                   <StatusBadge status={selectedInvoice.status} />
                 </div>
               </div>
@@ -423,26 +446,25 @@ function App() {
                 <tbody>
                   <tr>
                     <td>{selectedInvoice.description || "Invoice service"}</td>
-                    <td>₹{selectedInvoice.amount.toLocaleString("en-IN")}</td>
+                    <td>
+                      ₹{Number(selectedInvoice.amount || 0).toLocaleString("en-IN")}
+                    </td>
                   </tr>
                 </tbody>
               </table>
 
               <div className="totalBox">
-                <h2>Total: ₹{selectedInvoice.amount.toLocaleString("en-IN")}</h2>
+                <h2>
+                  Total: ₹
+                  {Number(selectedInvoice.amount || 0).toLocaleString("en-IN")}
+                </h2>
               </div>
 
               <div className="formActions noPrint">
                 {selectedInvoice.status !== "Paid" && (
                   <button
                     className="successBtn"
-                    onClick={() => {
-                      markAsPaid(selectedInvoice.id);
-                      setSelectedInvoice({
-                        ...selectedInvoice,
-                        status: "Paid",
-                      });
-                    }}
+                    onClick={() => markAsPaid(selectedInvoice.id)}
                   >
                     Mark as Paid
                   </button>
@@ -574,6 +596,12 @@ function App() {
 
         .content {
           padding: 30px;
+        }
+
+        .loadingBox {
+          padding: 40px;
+          font-size: 18px;
+          color: #2563eb;
         }
 
         .statsGrid {
@@ -944,7 +972,7 @@ function InvoiceTable({ invoices, onView, onDelete, onPaid }) {
         <tbody>
           {invoices.map((invoice) => (
             <tr key={invoice.id}>
-              <td>{invoice.id}</td>
+              <td>INV-{String(invoice.id).padStart(3, "0")}</td>
               <td>
                 <strong>{invoice.clientName}</strong>
                 <br />
@@ -952,7 +980,7 @@ function InvoiceTable({ invoices, onView, onDelete, onPaid }) {
               </td>
               <td>{invoice.invoiceDate}</td>
               <td>{invoice.dueDate}</td>
-              <td>₹{invoice.amount.toLocaleString("en-IN")}</td>
+              <td>₹{Number(invoice.amount || 0).toLocaleString("en-IN")}</td>
               <td>
                 <StatusBadge status={invoice.status} />
               </td>
