@@ -19,7 +19,7 @@ import com.example.demo.service.InvoiceService;
 
 @RestController
 @RequestMapping("/api/invoices")
-@CrossOrigin(origins = "http://localhost:5173")
+@CrossOrigin(origins = "*")
 public class InvoiceController {
 
     private final InvoiceService invoiceService;
